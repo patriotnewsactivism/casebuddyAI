@@ -17,6 +17,7 @@ import Timeline from "@/pages/timeline";
 import Research from "@/pages/research";
 import Search from "@/pages/search";
 import Settings from "@/pages/settings";
+import GeneratePage from "@/pages/generate";
 
 function Router() {
   return (
@@ -25,6 +26,7 @@ function Router() {
       <Route path="/cases" component={Cases} />
       <Route path="/cases/:id" component={CaseDetail} />
       <Route path="/documents" component={Documents} />
+      <Route path="/generate" component={GeneratePage} />
       <Route path="/evidence" component={Evidence} />
       <Route path="/timeline" component={Timeline} />
       <Route path="/research" component={Research} />
