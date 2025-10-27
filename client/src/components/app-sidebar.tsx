@@ -7,6 +7,7 @@ import {
   Settings,
   Scale,
   Folder,
+  Wand2,
 } from "lucide-react";
 import {
   Sidebar,
@@ -37,6 +38,11 @@ const menuItems = [
     title: "Documents",
     url: "/documents",
     icon: FileText,
+  },
+  {
+    title: "Generate",
+    url: "/generate",
+    icon: Wand2,
   },
   {
     title: "Evidence",
