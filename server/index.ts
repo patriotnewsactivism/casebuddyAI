@@ -1,6 +1,20 @@
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
+import {
+  errorHandler,
+  asyncHandler,
+  NotFoundError,
+} from "./middleware/error-handler";
+import {
+  corsConfig,
+  securityHeaders,
+  compressResponse,
+  apiLimiter,
+  uploadLimiter,
+  sanitizeInput,
+  healthCheck,
+} from "./middleware/security";
 
 const app = express();
 app.use(express.json());
