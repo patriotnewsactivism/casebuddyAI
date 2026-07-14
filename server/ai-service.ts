@@ -1,9 +1,204 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { storage } from "./storage";
 
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY || "",
-});
+// Determine fallback API keys
+const hasAnthropic = !!process.env.ANTHROPIC_API_KEY;
+const hasGroq = !!process.env.GROQ_API_KEY;
+const hasCerebras = !!process.env.CEREBRAS_API_KEY;
+const hasMistral = !!process.env.MISTRAL_API_KEY;
+const hasGemini = !!process.env.GEMINI_API_KEY;
+const hasCloudflare = !!process.env.CLOUDFLARE_API_KEY;
+const hasOpenRouter = !!process.env.OPENROUTER_API_KEY;
+
+// Use OpenRouter, Cloudflare, Gemini, Mistral, Cerebras, Groq fallback if Anthropic is missing
+const useFallback = !hasAnthropic;
+
+// Initialize SDKs lazily or as needed
+let anthropic: Anthropic | null = null;
+if (hasAnthropic) {
+  anthropic = new Anthropic({
+    apiKey: process.env.ANTHROPIC_API_KEY || "",
+  });
+}
+
+// Fallback helper using fetch API to perform a completion/chat generation across various free/fallback endpoints
+async function callFallbackModel(prompt: string, maxTokens: number = 4096, isJson: boolean = false): Promise<string> {
+  const systemPrompt = isJson ? "You must respond with ONLY valid JSON. Do not include any markdown block, backticks, or preamble." : "You are a helpful assistant.";
+  
+  // Order: Groq (GROQ_API_KEY) -> Cerebras (CEREBRAS_API_KEY) -> Mistral (MISTRAL_API_KEY) -> Gemini (GEMINI_API_KEY) -> Cloudflare Workers AI (CLOUDFLARE_API_KEY) -> OpenRouter ':free' (OPENROUTER_API_KEY)
+  
+  if (hasGroq) {
+    try {
+      const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${process.env.GROQ_API_KEY}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          model: "llama-3.3-70b-versatile",
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: prompt }
+          ],
+          max_tokens: maxTokens,
+          temperature: 0.1,
+          response_format: isJson ? { type: "json_object" } : undefined
+        })
+      });
+      if (response.ok) {
+        const data = await response.json();
+        return data.choices[0].message.content;
+      }
+      console.warn("Groq failed, status:", response.status);
+    } catch (e) {
+      console.error("Groq fallback error:", e);
+    }
+  }
+
+  if (hasCerebras) {
+    try {
+      const response = await fetch("https://api.cerebras.ai/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${process.env.CEREBRAS_API_KEY}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          model: "llama3.1-8b",
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: prompt }
+          ],
+          max_tokens: maxTokens,
+          temperature: 0.1
+        })
+      });
+      if (response.ok) {
+        const data = await response.json();
+        return data.choices[0].message.content;
+      }
+      console.warn("Cerebras failed, status:", response.status);
+    } catch (e) {
+      console.error("Cerebras fallback error:", e);
+    }
+  }
+
+  if (hasMistral) {
+    try {
+      const response = await fetch("https://api.mistral.ai/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${process.env.MISTRAL_API_KEY}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          model: "mistral-tiny",
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: prompt }
+          ],
+          max_tokens: maxTokens,
+          temperature: 0.1,
+          response_format: isJson ? { type: "json_object" } : undefined
+        })
+      });
+      if (response.ok) {
+        const data = await response.json();
+        return data.choices[0].message.content;
+      }
+      console.warn("Mistral failed, status:", response.status);
+    } catch (e) {
+      console.error("Mistral fallback error:", e);
+    }
+  }
+
+  if (hasGemini) {
+    try {
+      const model = "gemini-1.5-flash";
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${process.env.GEMINI_API_KEY}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: {
+            maxOutputTokens: maxTokens,
+            temperature: 0.1,
+            responseMimeType: isJson ? "application/json" : "text/plain"
+          }
+        })
+      });
+      if (response.ok) {
+        const data = await response.json();
+        return data.candidates[0].content.parts[0].text;
+      }
+      console.warn("Gemini failed, status:", response.status);
+    } catch (e) {
+      console.error("Gemini fallback error:", e);
+    }
+  }
+
+  if (hasCloudflare) {
+    try {
+      // Expecting CLOUDFLARE_API_KEY to hold the API Token, and CLOUDFLARE_ACCOUNT_ID in env or default
+      const accountId = process.env.CLOUDFLARE_ACCOUNT_ID || "default";
+      const model = "@cf/meta/llama-3-8b-instruct";
+      const response = await fetch(`https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${model}`, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${process.env.CLOUDFLARE_API_KEY}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: prompt }
+          ],
+          max_tokens: maxTokens
+        })
+      });
+      if (response.ok) {
+        const data = await response.json();
+        return data.result.response;
+      }
+      console.warn("Cloudflare Workers AI failed, status:", response.status);
+    } catch (e) {
+      console.error("Cloudflare fallback error:", e);
+    }
+  }
+
+  if (hasOpenRouter) {
+    try {
+      const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          model: "google/gemini-2.5-flash:free",
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: prompt }
+          ],
+          max_tokens: maxTokens,
+          temperature: 0.1
+        })
+      });
+      if (response.ok) {
+        const data = await response.json();
+        return data.choices[0].message.content;
+      }
+      console.warn("OpenRouter failed, status:", response.status);
+    } catch (e) {
+      console.error("OpenRouter fallback error:", e);
+    }
+  }
+
+  throw new Error("No fallback AI providers were successfully reached or configured.");
+}
 
 export interface DocumentAnalysis {
   summary: string;
@@ -61,18 +256,27 @@ Please provide a comprehensive analysis in JSON format with the following struct
 Provide only valid JSON, no other text.`;
 
     try {
-      const message = await anthropic.messages.create({
-        model: "claude-3-5-sonnet-20241022",
-        max_tokens: 4096,
-        messages: [
-          {
-            role: "user",
-            content: prompt,
-          },
-        ],
-      });
+      let responseText = "";
+      if (useFallback) {
+        responseText = await callFallbackModel(prompt, 4096, true);
+      } else if (anthropic) {
+        const message = await anthropic.messages.create({
+          model: "claude-3-5-sonnet-20241022",
+          max_tokens: 4096,
+          messages: [
+            {
+              role: "user",
+              content: prompt,
+            },
+          ],
+        });
+        responseText = message.content[0].type === "text" ? message.content[0].text : "";
+      } else {
+        throw new Error("No Anthropic client initialized and fallback is disabled.");
+      }
 
-      const responseText = message.content[0].type === "text" ? message.content[0].text : "";
+      // Clean responseText of any potential markdown wrapper blocks
+      responseText = responseText.replace(/```json\s?/g, "").replace(/```\s?/g, "").trim();
       const analysis = JSON.parse(responseText);
 
       return analysis;
@@ -162,18 +366,24 @@ Instructions:
 Return ONLY the filled template content, no explanations or additional text.`;
 
     try {
-      const message = await anthropic.messages.create({
-        model: "claude-3-5-sonnet-20241022",
-        max_tokens: 8192,
-        messages: [
-          {
-            role: "user",
-            content: prompt,
-          },
-        ],
-      });
-
-      const content = message.content[0].type === "text" ? message.content[0].text : "";
+      let content = "";
+      if (useFallback) {
+        content = await callFallbackModel(prompt, 8192, false);
+      } else if (anthropic) {
+        const message = await anthropic.messages.create({
+          model: "claude-3-5-sonnet-20241022",
+          max_tokens: 8192,
+          messages: [
+            {
+              role: "user",
+              content: prompt,
+            },
+          ],
+        });
+        content = message.content[0].type === "text" ? message.content[0].text : "";
+      } else {
+        throw new Error("No Anthropic client initialized and fallback is disabled.");
+      }
 
       return {
         content,
@@ -226,18 +436,26 @@ Please provide an improved version of the document that:
 Return ONLY the improved document content, no explanations.`;
 
     try {
-      const message = await anthropic.messages.create({
-        model: "claude-3-5-sonnet-20241022",
-        max_tokens: 8192,
-        messages: [
-          {
-            role: "user",
-            content: prompt,
-          },
-        ],
-      });
+      let result = content;
+      if (useFallback) {
+        result = await callFallbackModel(prompt, 8192, false);
+      } else if (anthropic) {
+        const message = await anthropic.messages.create({
+          model: "claude-3-5-sonnet-20241022",
+          max_tokens: 8192,
+          messages: [
+            {
+              role: "user",
+              content: prompt,
+            },
+          ],
+        });
+        result = message.content[0].type === "text" ? message.content[0].text : content;
+      } else {
+        throw new Error("No Anthropic client initialized and fallback is disabled.");
+      }
 
-      return message.content[0].type === "text" ? message.content[0].text : content;
+      return result;
     } catch (error) {
       console.error("Error improving document:", error);
       throw new Error("Failed to improve document");
@@ -262,18 +480,26 @@ Extract variables like party names, dates, amounts, terms, etc. in JSON format:
 Provide only valid JSON, no other text.`;
 
     try {
-      const message = await anthropic.messages.create({
-        model: "claude-3-5-sonnet-20241022",
-        max_tokens: 2048,
-        messages: [
-          {
-            role: "user",
-            content: prompt,
-          },
-        ],
-      });
+      let responseText = "{}";
+      if (useFallback) {
+        responseText = await callFallbackModel(prompt, 2048, true);
+      } else if (anthropic) {
+        const message = await anthropic.messages.create({
+          model: "claude-3-5-sonnet-20241022",
+          max_tokens: 2048,
+          messages: [
+            {
+              role: "user",
+              content: prompt,
+            },
+          ],
+        });
+        responseText = message.content[0].type === "text" ? message.content[0].text : "{}";
+      } else {
+        throw new Error("No Anthropic client initialized and fallback is disabled.");
+      }
 
-      const responseText = message.content[0].type === "text" ? message.content[0].text : "{}";
+      responseText = responseText.replace(/```json\s?/g, "").replace(/```\s?/g, "").trim();
       return JSON.parse(responseText);
     } catch (error) {
       console.error("Error extracting variables:", error);
@@ -316,18 +542,26 @@ Format your response as JSON:
 }`;
 
     try {
-      const message = await anthropic.messages.create({
-        model: "claude-3-5-sonnet-20241022",
-        max_tokens: 4096,
-        messages: [
-          {
-            role: "user",
-            content: prompt,
-          },
-        ],
-      });
+      let responseText = "";
+      if (useFallback) {
+        responseText = await callFallbackModel(prompt, 4096, true);
+      } else if (anthropic) {
+        const message = await anthropic.messages.create({
+          model: "claude-3-5-sonnet-20241022",
+          max_tokens: 4096,
+          messages: [
+            {
+              role: "user",
+              content: prompt,
+            },
+          ],
+        });
+        responseText = message.content[0].type === "text" ? message.content[0].text : "";
+      } else {
+        throw new Error("No Anthropic client initialized and fallback is disabled.");
+      }
 
-      const responseText = message.content[0].type === "text" ? message.content[0].text : "";
+      responseText = responseText.replace(/```json\s?/g, "").replace(/```\s?/g, "").trim();
       return JSON.parse(responseText);
     } catch (error) {
       console.error("Error performing research:", error);
