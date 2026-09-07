@@ -13,7 +13,7 @@ const upload = multer({
 export async function registerRoutes(app: Express): Promise<Server> {
   
   // Document routes
-  app.get("/api/documents", async (req, res) => {
+  app.get("/api/documents", async (_req, res) => {
     try {
       const documents = await storage.getAllDocuments();
       res.json(documents);
@@ -87,7 +87,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Template routes
-  app.get("/api/templates", async (req, res) => {
+  app.get("/api/templates", async (_req, res) => {
     try {
       const templates = await storage.getAllTemplates();
       res.json(templates);
@@ -189,7 +189,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Generated documents routes
-  app.get("/api/generated", async (req, res) => {
+  app.get("/api/generated", async (_req, res) => {
     try {
       const documents = await storage.getAllGeneratedDocuments();
       res.json(documents);
@@ -211,7 +211,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Knowledge base routes
-  app.get("/api/knowledge", async (req, res) => {
+  app.get("/api/knowledge", async (_req, res) => {
     try {
       const knowledge = await storage.getAllKnowledge();
       res.json(knowledge);
