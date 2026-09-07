@@ -1,5 +1,19 @@
 import express, { type NextFunction, type Request, type Response } from "express";
-import { registerRoutes } from "../server/routes";
+import * as routesModule from "../server/routes";
+
+type RegisterRoutes = typeof import("../server/routes")["registerRoutes"];
+type RoutesInterop = {
+  registerRoutes?: RegisterRoutes;
+  default?: { registerRoutes?: RegisterRoutes };
+};
+
+const routesInterop = routesModule as unknown as RoutesInterop;
+const registerRoutes =
+  routesInterop.registerRoutes ?? routesInterop.default?.registerRoutes;
+
+if (!registerRoutes) {
+  throw new Error("CaseBuddy API route module did not expose registerRoutes");
+}
 
 const app = express();
 
